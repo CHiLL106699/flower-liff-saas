@@ -217,7 +217,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     user,
     session,
     staff,
-    isAuthenticated: !!user && !!staff,
+    isAuthenticated: !!user, // 只要有 user 就算已認證，staff 可能需要額外查詢
     isLoading,
     error,
     login,

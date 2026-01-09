@@ -18,7 +18,7 @@ function AdminContent() {
   }
 
   if (!isAuthenticated) {
-    return <AdminLogin onLoginSuccess={() => window.location.reload()} />;
+    return <AdminLogin />;
   }
 
   return <AdminDashboard />;

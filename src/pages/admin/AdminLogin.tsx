@@ -5,11 +5,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Settings, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
-interface AdminLoginProps {
-  onLoginSuccess?: () => void;
-}
-
-export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
+export function AdminLogin() {
   const { login, isLoading, error } = useAdminAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,11 +22,10 @@ export function AdminLogin({ onLoginSuccess }: AdminLoginProps) {
     }
 
     const result = await login(email, password);
-    if (result.success) {
-      onLoginSuccess?.();
-    } else {
+    if (!result.success) {
       setLocalError(result.error || '登入失敗');
     }
+    // 登入成功後，AdminAuthContext 會自動更新 isAuthenticated 狀態
   };
 
   const displayError = localError || error;
