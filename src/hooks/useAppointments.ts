@@ -10,20 +10,23 @@ export interface Appointment {
   organization_id: number;
   user_id: number;
   treatment_id: number;
-  doctor_id: number | null;
+  staff_id: number | null;
   appointment_time: string;
   status: AppointmentStatus;
   notes: string | null;
   created_at: string;
   updated_at: string;
   // 關聯資料
-  user?: {
+  users?: {
     id: number;
-    real_name: string;
-    phone: string;
+    line_display_name: string;
     line_user_id: string;
   };
-  treatment?: {
+  organization_users?: {
+    customer_real_name: string;
+    customer_phone: string;
+  };
+  treatments?: {
     id: number;
     name: string;
     duration_minutes: number;
@@ -79,9 +82,10 @@ export function useAppointments({
         .from('appointments')
         .select(`
           *,
-          user:users(id, real_name, phone, line_user_id),
-          treatment:treatments(id, name, duration_minutes, price),
-          staff:staff(id, name, position)
+          users(id, line_display_name, line_user_id),
+          organization_users!inner(customer_real_name, customer_phone),
+          treatments(id, name, duration_minutes, price),
+          staff(id, name, position)
         `)
         .eq('organization_id', organizationId)
         .order('appointment_time', { ascending: true });

@@ -36,15 +36,16 @@ interface Appointment {
   id: number;
   user_id: number;
   treatment_id: number;
-  doctor_id: number | null;
+  staff_id: number | null;
   appointment_time: string;
   status: 'pending' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled';
   notes: string | null;
   created_at: string;
-  user_name?: string;
-  user_phone?: string;
-  treatment_name?: string;
-  doctor_name?: string;
+  // 關聯資料
+  users?: { id: number; line_display_name: string; line_user_id: string };
+  organization_users?: { customer_real_name: string; customer_phone: string };
+  treatments?: { id: number; name: string; duration_minutes: number; price: number };
+  staff?: { id: number; name: string; position: string };
 }
 
 interface DashboardStats {

@@ -6,15 +6,16 @@ interface Appointment {
   id: number;
   user_id: number;
   treatment_id: number;
-  doctor_id: number | null;
+  staff_id: number | null;
   appointment_time: string;
   status: 'pending' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled';
   notes: string | null;
   created_at: string;
-  user_name?: string;
-  user_phone?: string;
-  treatment_name?: string;
-  doctor_name?: string;
+  // 關聯資料
+  users?: { id: number; line_display_name: string; line_user_id: string };
+  organization_users?: { customer_real_name: string; customer_phone: string };
+  treatments?: { id: number; name: string; duration_minutes: number; price: number };
+  staff?: { id: number; name: string; position: string };
 }
 
 interface AppointmentDetailModalProps {
@@ -150,13 +151,13 @@ export function AppointmentDetailModal({ appointment, onClose, onUpdate }: Appoi
                 <svg className="w-5 h-5 text-pink-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
-                <span className="text-slate-700 font-medium">{appointment.user_name || '未知'}</span>
+                <span className="text-slate-700 font-medium">{appointment.organization_users?.customer_real_name || appointment.users?.line_display_name || '未知'}</span>
               </div>
               <div className="flex items-center">
                 <svg className="w-5 h-5 text-pink-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                 </svg>
-                <span className="text-slate-600">{appointment.user_phone || '未提供'}</span>
+                <span className="text-slate-600">{appointment.organization_users?.customer_phone || '未提供'}</span>
               </div>
             </div>
           </div>
@@ -183,7 +184,7 @@ export function AppointmentDetailModal({ appointment, onClose, onUpdate }: Appoi
               </div>
               <div>
                 <p className="text-sm text-slate-500">療程項目</p>
-                <p className="text-slate-700 font-medium">{appointment.treatment_name || '未知療程'}</p>
+                <p className="text-slate-700 font-medium">{appointment.treatments?.name || '未知療程'}</p>
               </div>
             </div>
 
@@ -195,7 +196,7 @@ export function AppointmentDetailModal({ appointment, onClose, onUpdate }: Appoi
               </div>
               <div>
                 <p className="text-sm text-slate-500">服務醫師</p>
-                <p className="text-slate-700 font-medium">{appointment.doctor_name || '未指定'}</p>
+                <p className="text-slate-700 font-medium">{appointment.staff?.name || '未指定'}</p>
               </div>
             </div>
 

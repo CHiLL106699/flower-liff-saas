@@ -55,10 +55,10 @@ export function AppointmentCalendar({ organizationId = 1 }: AppointmentCalendarP
   const calendarEvents = useMemo(() => {
     return appointments.map(apt => ({
       id: String(apt.id),
-      title: `${apt.user?.real_name || '未知客戶'} - ${apt.treatment?.name || '未知療程'}`,
+      title: `${(apt as any).organization_users?.customer_real_name || (apt as any).users?.line_display_name || '未知客戶'} - ${(apt as any).treatments?.name || '未知療程'}`,
       start: apt.appointment_time,
-      end: apt.treatment?.duration_minutes
-        ? new Date(new Date(apt.appointment_time).getTime() + apt.treatment.duration_minutes * 60000).toISOString()
+      end: (apt as any).treatments?.duration_minutes
+        ? new Date(new Date(apt.appointment_time).getTime() + (apt as any).treatments.duration_minutes * 60000).toISOString()
         : apt.appointment_time,
       backgroundColor: STATUS_COLORS[apt.status],
       borderColor: STATUS_COLORS[apt.status],
