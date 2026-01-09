@@ -10,6 +10,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { OnboardingProvider, useOnboarding } from './components/OnboardingGate';
+import { AdminPage } from './pages/admin';
 import type { GatewayResult } from './lib/liff-auth';
 
 // ============================================================================
@@ -312,17 +313,28 @@ const App: React.FC = () => {
 
   return (
     <BrowserRouter>
-      <OnboardingProvider
-        onAuthSuccess={handleAuthSuccess}
-        onRegistrationComplete={handleRegistrationComplete}
-      >
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/booking" element={<BookingPage />} />
-          <Route path="/records" element={<RecordsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </OnboardingProvider>
+      <Routes>
+        {/* Admin Route - 獨立於 LIFF 認證流程 */}
+        <Route path="/admin/*" element={<AdminPage />} />
+        
+        {/* LIFF Client Routes - 需要 OnboardingGate */}
+        <Route
+          path="/*"
+          element={
+            <OnboardingProvider
+              onAuthSuccess={handleAuthSuccess}
+              onRegistrationComplete={handleRegistrationComplete}
+            >
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/booking" element={<BookingPage />} />
+                <Route path="/records" element={<RecordsPage />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </OnboardingProvider>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 };
