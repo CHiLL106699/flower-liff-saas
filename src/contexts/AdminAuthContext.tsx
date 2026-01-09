@@ -48,8 +48,10 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   // 取得員工資料
-  const fetchStaffInfo = async (userId: string, userEmail: string) => {
+  const fetchStaffInfo = async (userId: string, userEmail: string): Promise<StaffInfo | null> => {
     try {
+      console.log('Fetching staff info for:', userId, userEmail);
+      
       // 先從 staff_credentials 查詢
       const { data: credentials, error: credError } = await supabase
         .from('staff_credentials')
@@ -57,16 +59,20 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         .eq('id', userId)
         .single();
 
+      console.log('Credentials:', credentials, 'Error:', credError);
+
       if (credentials && !credError) {
         // 取得對應的 staff 資料
-        const { data: staffData } = await supabase
+        const { data: staffData, error: staffError } = await supabase
           .from('staff')
           .select('*')
           .eq('id', credentials.staff_id)
           .single();
 
+        console.log('Staff data:', staffData, 'Error:', staffError);
+
         if (staffData) {
-          setStaff({
+          const staffInfo: StaffInfo = {
             id: staffData.id,
             organization_id: credentials.organization_id,
             name: staffData.name,
@@ -74,18 +80,22 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
             role: credentials.role as StaffRole,
             email: userEmail,
             user_id: userId,
-          });
-          return;
+          };
+          setStaff(staffInfo);
+          return staffInfo;
         }
       }
 
       // 如果沒有 staff_credentials，嘗試從 staff 表直接查詢 (向後兼容)
-      const { data: staffByEmail } = await supabase
+      // 使用 email 比對
+      const { data: staffByEmail, error: emailError } = await supabase
         .from('staff')
         .select('*')
-        .eq('organization_id', 1) // 預設組織
+        .eq('organization_id', 1)
         .limit(1)
-        .single();
+        .maybeSingle();
+
+      console.log('Staff by email:', staffByEmail, 'Error:', emailError);
 
       if (staffByEmail) {
         // 根據 position 判斷 role
@@ -94,7 +104,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         else if (staffByEmail.position === 'super_senior') role = 'super_senior';
         else if (staffByEmail.position === 'super_general') role = 'super_general';
 
-        setStaff({
+        const staffInfo: StaffInfo = {
           id: staffByEmail.id,
           organization_id: staffByEmail.organization_id,
           name: staffByEmail.name,
@@ -102,10 +112,15 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
           role,
           email: userEmail,
           user_id: userId,
-        });
+        };
+        setStaff(staffInfo);
+        return staffInfo;
       }
+      
+      return null;
     } catch (err) {
       console.error('Error fetching staff info:', err);
+      return null;
     }
   };
 
