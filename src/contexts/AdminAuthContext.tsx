@@ -87,12 +87,12 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       }
 
       // 如果沒有 staff_credentials，嘗試從 staff 表直接查詢 (向後兼容)
-      // 使用 email 比對
+      // 使用 email 精確比對
       const { data: staffByEmail, error: emailError } = await supabase
         .from('staff')
         .select('*')
+        .eq('email', userEmail)
         .eq('organization_id', 1)
-        .limit(1)
         .maybeSingle();
 
       console.log('Staff by email:', staffByEmail, 'Error:', emailError);

@@ -1,13 +1,12 @@
 /**
- * LINE LIFF SaaS Platform - App Entry Point
+ * YOChiLL SaaS Platform - App Entry Point
  * 
- * Theme: Flower Pink (粉色系 - 花花醫美品牌)
- * 
- * 整合六宮格首頁與所有 LIFF 功能頁面
- * 支援角色權限分流：客戶版 / 員工版 / 管理版
+ * 路由架構：Layout Route 模式
+ * - WebLayout: /admin, /super-admin (純網頁，無 LIFF 依賴)
+ * - LiffLayout: 所有其他路由 (需要 LINE LIFF 認證)
  */
 
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams, Outlet } from 'react-router-dom';
 import { OnboardingProvider } from './components/OnboardingGate';
 import { AdminPage } from './pages/admin';
 import SuperAdminPage from './pages/super-admin';
@@ -31,6 +30,43 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { ArrowLeft, Calendar, Loader2 } from 'lucide-react';
 import { Button } from './components/ui/button';
+
+// ============================================================================
+// Layout Components - 路由佈局元件
+// ============================================================================
+
+/**
+ * WebLayout - 純網頁佈局
+ * 用於 /admin 和 /super-admin 路由
+ * 完全不載入任何 LIFF 相關邏輯
+ */
+const WebLayout: React.FC = () => {
+  return <Outlet />;
+};
+
+/**
+ * LiffLayout - LIFF 佈局
+ * 用於需要 LINE 身份驗證的頁面
+ * 包裹 OnboardingProvider 進行身份閘道控制
+ */
+const LiffLayout: React.FC = () => {
+  const handleAuthSuccess = (result: GatewayResult) => {
+    console.log('Auth success:', result);
+  };
+
+  const handleRegistrationComplete = (result: GatewayResult) => {
+    console.log('Registration complete:', result);
+  };
+
+  return (
+    <OnboardingProvider
+      onAuthSuccess={handleAuthSuccess}
+      onRegistrationComplete={handleRegistrationComplete}
+    >
+      <Outlet />
+    </OnboardingProvider>
+  );
+};
 
 // ============================================================================
 // Booking Page - 預約頁面 (完整功能版)
@@ -77,7 +113,6 @@ const BookingPage: React.FC = () => {
   useEffect(() => {
     const loadData = async () => {
       try {
-        // 載入療程
         const { data: treatmentData, error: treatmentError } = await supabase
           .from('treatments')
           .select('*')
@@ -87,7 +122,6 @@ const BookingPage: React.FC = () => {
         if (treatmentError) throw treatmentError;
         setTreatments(treatmentData || []);
 
-        // 載入醫師
         const { data: staffData, error: staffError } = await supabase
           .from('staff')
           .select('*')
@@ -107,14 +141,12 @@ const BookingPage: React.FC = () => {
     loadData();
   }, []);
 
-  // 生成可用時段
   const timeSlots = [
     '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
     '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
     '17:00', '17:30', '18:00', '18:30', '19:00'
   ];
 
-  // 生成未來 14 天的日期
   const generateDates = () => {
     const dates = [];
     const today = new Date();
@@ -179,7 +211,6 @@ const BookingPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50">
-      {/* Header */}
       <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-4 rounded-b-3xl shadow-lg">
         <div className="flex items-center gap-3">
           <button
@@ -196,7 +227,6 @@ const BookingPage: React.FC = () => {
       </div>
 
       <div className="px-4 py-6 space-y-4">
-        {/* 選擇療程 */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="font-bold text-slate-800 mb-3">選擇療程</h2>
           <div className="space-y-2">
@@ -224,7 +254,6 @@ const BookingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 選擇醫師 */}
         {staff.length > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
             <h2 className="font-bold text-slate-800 mb-3">選擇醫師 (選填)</h2>
@@ -256,7 +285,6 @@ const BookingPage: React.FC = () => {
           </div>
         )}
 
-        {/* 選擇日期 */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="font-bold text-slate-800 mb-3">選擇日期</h2>
           <div className="flex flex-wrap gap-2">
@@ -285,7 +313,6 @@ const BookingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 選擇時段 */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="font-bold text-slate-800 mb-3">選擇時段</h2>
           <div className="grid grid-cols-4 gap-2">
@@ -305,17 +332,16 @@ const BookingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 確認預約 */}
         <Button
           onClick={handleSubmit}
           disabled={isSubmitting || !selectedTreatment || !selectedDate || !selectedTime}
-          className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white py-4 rounded-xl font-semibold shadow-lg"
+          className="w-full py-6 rounded-2xl text-lg font-bold shadow-lg"
         >
           {isSubmitting ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
               預約中...
-            </>
+            </span>
           ) : (
             '確認預約'
           )}
@@ -326,72 +352,52 @@ const BookingPage: React.FC = () => {
 };
 
 // ============================================================================
-// App Root
+// App Root - 使用 Layout Route 模式
 // ============================================================================
 
 const App: React.FC = () => {
-  const handleAuthSuccess = (result: GatewayResult) => {
-    console.log('Auth success:', result);
-  };
-
-  const handleRegistrationComplete = (result: GatewayResult) => {
-    console.log('Registration complete:', result);
-  };
-
   return (
     <BrowserRouter>
       <Routes>
-        {/* Super Admin Route - SaaS 總分配管理平台 */}
-        <Route path="/super-admin/*" element={<SuperAdminPage />} />
+        {/* ============================================================ */}
+        {/* Web Routes - 純網頁路由 (無 LIFF 依賴)                        */}
+        {/* 這些路由使用 WebLayout，完全不載入 OnboardingProvider          */}
+        {/* ============================================================ */}
+        <Route element={<WebLayout />}>
+          <Route path="/super-admin/*" element={<SuperAdminPage />} />
+          <Route path="/admin/*" element={<AdminPage />} />
+        </Route>
 
-        {/* Admin Route - 獨立於 LIFF 認證流程 (電腦版後台) */}
-        <Route path="/admin/*" element={<AdminPage />} />
-        
-        {/* Staff LIFF Routes - 員工版 Mobile 後台 */}
+        {/* ============================================================ */}
+        {/* Staff LIFF Routes - 員工版 Mobile 後台                        */}
+        {/* 暫時獨立，未來可整合至 LiffLayout                              */}
+        {/* ============================================================ */}
         <Route path="/staff/dashboard" element={<StaffDashboard />} />
         <Route path="/staff/schedule" element={<StaffSchedule />} />
         <Route path="/staff/scanner" element={<StaffScanner />} />
         <Route path="/staff/hr" element={<StaffHR />} />
         <Route path="/staff/finance" element={<StaffFinance />} />
-        
-        {/* LIFF Client Routes - 需要 OnboardingGate */}
-        <Route
-          path="/*"
-          element={
-            <OnboardingProvider
-              onAuthSuccess={handleAuthSuccess}
-              onRegistrationComplete={handleRegistrationComplete}
-            >
-              <Routes>
-                {/* 六宮格首頁 (支援角色分流) */}
-                <Route path="/" element={<LiffHome />} />
-                
-                {/* 預約系統 */}
-                <Route path="/booking" element={<BookingPage />} />
-                
-                {/* 醫美商城 */}
-                <Route path="/mall" element={<LiffMall />} />
-                
-                {/* 體重追蹤 */}
-                <Route path="/weight" element={<LiffWeight />} />
-                
-                {/* 會員中心 */}
-                <Route path="/profile" element={<LiffProfile />} />
-                
-                {/* 意見回饋 */}
-                <Route path="/feedback" element={<LiffFeedback />} />
-                
-                {/* 舊路由相容 */}
-                <Route path="/records" element={<Navigate to="/profile" replace />} />
-                <Route path="/offers" element={<Navigate to="/mall" replace />} />
-                <Route path="/contact" element={<Navigate to="/feedback" replace />} />
-                
-                {/* 404 */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </OnboardingProvider>
-          }
-        />
+
+        {/* ============================================================ */}
+        {/* LIFF Client Routes - 需要 LINE 身份驗證                       */}
+        {/* 這些路由使用 LiffLayout，包裹 OnboardingProvider               */}
+        {/* ============================================================ */}
+        <Route element={<LiffLayout />}>
+          <Route path="/" element={<LiffHome />} />
+          <Route path="/booking" element={<BookingPage />} />
+          <Route path="/mall" element={<LiffMall />} />
+          <Route path="/weight" element={<LiffWeight />} />
+          <Route path="/profile" element={<LiffProfile />} />
+          <Route path="/feedback" element={<LiffFeedback />} />
+          
+          {/* 舊路由相容 */}
+          <Route path="/records" element={<Navigate to="/profile" replace />} />
+          <Route path="/offers" element={<Navigate to="/mall" replace />} />
+          <Route path="/contact" element={<Navigate to="/feedback" replace />} />
+        </Route>
+
+        {/* 404 - 預設導向首頁 */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

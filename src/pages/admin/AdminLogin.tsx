@@ -1,8 +1,10 @@
 /**
- * Admin Login Page - 管理員登入頁面
+ * Admin Login Page - YOChiLL SaaS Management
  * 
- * 支援登入與註冊功能
- * 使用 Supabase Auth 進行真實驗證
+ * 診所管理員登入頁面
+ * 支援登入與註冊功能，使用 Supabase Auth 進行真實驗證
+ * 
+ * 修正版：確保 staff 與 staff_credentials 表正確寫入
  */
 
 import { useState } from 'react';
@@ -14,6 +16,9 @@ import { Settings, Eye, EyeOff, AlertCircle, CheckCircle, User } from 'lucide-re
 import { supabase } from '../../lib/supabase';
 
 type AuthMode = 'login' | 'register';
+
+// 預設組織 ID (示範診所)
+const DEFAULT_ORGANIZATION_ID = 1;
 
 export function AdminLogin() {
   const { login, isLoading: authLoading, error: authError } = useAdminAuth();
@@ -68,7 +73,36 @@ export function AdminLogin() {
     }
 
     try {
-      // 1. 在 Supabase Auth 建立帳號
+      // 1. 確保組織存在
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .select('id')
+        .eq('id', DEFAULT_ORGANIZATION_ID)
+        .maybeSingle();
+
+      if (orgError) {
+        console.error('Organization check error:', orgError);
+      }
+
+      // 如果組織不存在，建立預設組織
+      if (!orgData) {
+        const { error: createOrgError } = await supabase
+          .from('organizations')
+          .insert({
+            id: DEFAULT_ORGANIZATION_ID,
+            name: 'YOChiLL Demo Clinic',
+            slug: 'yochill-demo',
+            plan: 'pro',
+            is_active: true,
+          });
+
+        if (createOrgError) {
+          console.error('Create organization error:', createOrgError);
+          // 繼續執行，可能是 RLS 問題
+        }
+      }
+
+      // 2. 在 Supabase Auth 建立帳號
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -76,13 +110,14 @@ export function AdminLogin() {
           data: {
             name: name,
             role: 'admin',
+            organization_id: DEFAULT_ORGANIZATION_ID,
           },
         },
       });
 
       if (signUpError) {
         if (signUpError.message.includes('already registered')) {
-          setLocalError('此電子郵件已被註冊');
+          setLocalError('此電子郵件已被註冊，請直接登入');
         } else {
           setLocalError(signUpError.message);
         }
@@ -96,42 +131,41 @@ export function AdminLogin() {
         return;
       }
 
-      // 2. 確保 staff 表有對應資料
-      const { data: existingStaff } = await supabase
+      // 3. 建立 staff 資料 (每個使用者都建立新的 staff 記錄)
+      const { data: newStaff, error: staffError } = await supabase
         .from('staff')
+        .insert({
+          organization_id: DEFAULT_ORGANIZATION_ID,
+          name: name,
+          email: email,
+          position: 'admin',
+          role: 'admin',
+          is_active: true,
+        })
         .select('id')
-        .eq('organization_id', 1)
-        .limit(1)
-        .maybeSingle();
+        .single();
 
-      let staffId = existingStaff?.id;
-
-      if (!existingStaff) {
-        // 建立 staff 資料
-        const { data: newStaff } = await supabase
+      if (staffError) {
+        console.error('Staff creation error:', staffError);
+        // 嘗試查找是否已存在
+        const { data: existingStaff } = await supabase
           .from('staff')
-          .insert({
-            organization_id: 1,
-            name: name,
-            position: 'admin',
-            is_active: true,
-          })
           .select('id')
-          .single();
-        
-        staffId = newStaff?.id;
-      }
+          .eq('email', email)
+          .eq('organization_id', DEFAULT_ORGANIZATION_ID)
+          .maybeSingle();
 
-      // 3. 在 staff_credentials 表建立關聯資料
-      if (staffId) {
-        await supabase
-          .from('staff_credentials')
-          .upsert({
-            id: authData.user.id,
-            staff_id: staffId,
-            organization_id: 1,
-            role: 'admin',
-          });
+        if (existingStaff) {
+          // 使用已存在的 staff
+          await createStaffCredentials(authData.user.id, existingStaff.id);
+        } else {
+          setLocalError('建立員工資料失敗，請聯繫管理員');
+          setIsLoading(false);
+          return;
+        }
+      } else if (newStaff) {
+        // 4. 在 staff_credentials 表建立關聯資料
+        await createStaffCredentials(authData.user.id, newStaff.id);
       }
 
       setSuccess('註冊成功！請使用您的帳號密碼登入。');
@@ -141,10 +175,27 @@ export function AdminLogin() {
       setName('');
     } catch (err) {
       console.error('Registration error:', err);
-      setLocalError('註冊過程發生錯誤');
+      setLocalError('註冊過程發生錯誤，請稍後再試');
     }
 
     setIsLoading(false);
+  };
+
+  const createStaffCredentials = async (authUserId: string, staffId: number) => {
+    const { error: credError } = await supabase
+      .from('staff_credentials')
+      .upsert({
+        id: authUserId,
+        staff_id: staffId,
+        organization_id: DEFAULT_ORGANIZATION_ID,
+        role: 'admin',
+      }, {
+        onConflict: 'id',
+      });
+
+    if (credError) {
+      console.error('Staff credentials error:', credError);
+    }
   };
 
   const switchMode = () => {
@@ -159,28 +210,28 @@ export function AdminLogin() {
   const loading = isLoading || authLoading;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex items-center justify-center p-4">
       {/* 背景裝飾 */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-rose-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-indigo-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" />
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-pulse" style={{ animationDelay: '1s' }} />
       </div>
 
       <div className="w-full max-w-md relative z-10">
         {/* Logo 區域 */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-500 shadow-lg shadow-pink-500/30 mb-4">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-500/30 mb-4">
             <Settings className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">管理後台</h1>
-          <p className="text-slate-500 mt-1">Flower Demo Clinic</p>
+          <h1 className="text-2xl font-bold text-slate-800">YOChiLL</h1>
+          <p className="text-slate-500 mt-1">SaaS Management</p>
         </div>
 
         {/* 登入/註冊卡片 */}
         <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm">
           <CardHeader className="space-y-1 pb-4">
             <CardTitle className="text-xl text-center">
-              {mode === 'login' ? '員工登入' : '建立管理員帳號'}
+              {mode === 'login' ? '診所管理員登入' : '建立管理員帳號'}
             </CardTitle>
             <CardDescription className="text-center">
               {mode === 'login' 
@@ -294,8 +345,7 @@ export function AdminLogin() {
               {/* 提交按鈕 */}
               <Button
                 type="submit"
-                className="w-full h-12 text-base"
-                isLoading={loading}
+                className="w-full h-12 text-base bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500"
                 disabled={loading}
               >
                 {loading 
@@ -310,7 +360,7 @@ export function AdminLogin() {
               <button
                 type="button"
                 onClick={switchMode}
-                className="text-sm text-pink-600 hover:text-pink-700 hover:underline transition-colors"
+                className="text-sm text-indigo-600 hover:text-indigo-700 hover:underline transition-colors"
               >
                 {mode === 'login' ? '還沒有帳號？點此註冊' : '已有帳號？點此登入'}
               </button>
@@ -324,7 +374,7 @@ export function AdminLogin() {
                     <div className="w-full border-t border-slate-200" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-slate-400">快速填入</span>
+                    <span className="bg-white px-2 text-slate-400">提示</span>
                   </div>
                 </div>
 
@@ -341,7 +391,7 @@ export function AdminLogin() {
 
         {/* 版權資訊 */}
         <p className="text-center text-xs text-slate-400 mt-6">
-          © 2026 Flower LIFF SaaS Platform
+          © 2026 YOChiLL SaaS Platform
         </p>
       </div>
     </div>
