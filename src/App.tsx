@@ -111,7 +111,7 @@ const HomePage: React.FC = () => {
  * 預約頁面 (Flower Pink Theme)
  */
 const BookingPage: React.FC = () => {
-  const { profile } = useOnboarding();
+  useOnboarding(); // Ensure user is authenticated
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
@@ -197,28 +197,32 @@ const BookingPage: React.FC = () => {
 /**
  * 療程紀錄頁面 (Flower Pink Theme)
  */
-const RecordsPage: React.FC = () => (
-  <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
-    <header className="flex items-center gap-4 p-4 bg-white border-b border-pink-100">
-      <Link to="/" className="text-2xl text-pink-500">←</Link>
-      <h1 className="text-xl font-bold text-slate-700">我的療程</h1>
-    </header>
-    <div className="p-4">
-      <div className="bg-white rounded-2xl p-6 shadow-sm border border-pink-100 text-center">
-        <div className="w-16 h-16 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <span className="text-2xl">📋</span>
+const RecordsPage: React.FC = () => {
+  useOnboarding(); // Ensure user is authenticated
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
+      <header className="flex items-center gap-4 p-4 bg-white border-b border-pink-100">
+        <Link to="/" className="text-2xl text-pink-500">←</Link>
+        <h1 className="text-xl font-bold text-slate-700">我的療程</h1>
+      </header>
+      <div className="p-4">
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-pink-100 text-center">
+          <div className="w-16 h-16 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl">📋</span>
+          </div>
+          <p className="text-slate-500">尚無療程紀錄</p>
+          <Link
+            to="/booking"
+            className="inline-block mt-4 bg-gradient-to-r from-pink-500 to-rose-400 text-white px-6 py-2 rounded-full font-semibold text-sm"
+          >
+            立即預約
+          </Link>
         </div>
-        <p className="text-slate-500">尚無療程紀錄</p>
-        <Link
-          to="/booking"
-          className="inline-block mt-4 bg-gradient-to-r from-pink-500 to-rose-400 text-white px-6 py-2 rounded-full font-semibold text-sm"
-        >
-          立即預約
-        </Link>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ============================================================================
 // UI Components - Flower Pink Theme
