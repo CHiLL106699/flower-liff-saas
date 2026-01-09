@@ -2,7 +2,35 @@ import { useState, useEffect } from 'react';
 import { useAdminAuth } from '../../contexts/AdminAuthContext';
 import { AppointmentCalendar } from './AppointmentCalendar';
 import { AppointmentDetailModal } from './AppointmentDetailModal';
+import { AnalyticsCharts } from './AnalyticsCharts';
 import { supabase } from '../../lib/supabase';
+import { Card, CardContent } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import {
+  Calendar,
+  BarChart3,
+  Users,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  ChevronRight,
+  Bell,
+  Clock,
+  CheckCircle,
+  UserPlus,
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+
+// 選單項目配置
+const MENU_ITEMS = [
+  { id: 'calendar', label: '預約管理', icon: Calendar, permission: 'staff' },
+  { id: 'analytics', label: '數據分析', icon: BarChart3, permission: 'super_general' },
+  { id: 'customers', label: '客戶管理', icon: Users, permission: 'super_general' },
+  { id: 'settings', label: '系統設定', icon: Settings, permission: 'admin' },
+];
+
+type MenuId = 'calendar' | 'analytics' | 'customers' | 'settings';
 
 interface Appointment {
   id: number;
@@ -28,6 +56,8 @@ interface DashboardStats {
 
 export function AdminDashboard() {
   const { staff, logout, hasPermission } = useAdminAuth();
+  const [activeMenu, setActiveMenu] = useState<MenuId>('calendar');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [stats, setStats] = useState<DashboardStats>({
     todayAppointments: 0,
@@ -36,7 +66,6 @@ export function AdminDashboard() {
     totalCustomers: 0,
   });
   const [refreshKey, setRefreshKey] = useState(0);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // 取得統計資料
   const fetchStats = async () => {
@@ -73,7 +102,7 @@ export function AdminDashboard() {
 
       // 總客戶數
       const { count: customerCount } = await supabase
-        .from('organization_users')
+        .from('users')
         .select('*', { count: 'exact', head: true })
         .eq('organization_id', staff.organization_id)
         .eq('is_registered', true);
@@ -93,10 +122,27 @@ export function AdminDashboard() {
     fetchStats();
   }, [staff, refreshKey]);
 
+  // 處理登出
+  const handleLogout = async () => {
+    await logout();
+  };
+
+  // 處理預約更新
   const handleAppointmentUpdate = () => {
     setRefreshKey(prev => prev + 1);
     fetchStats();
+    setSelectedAppointment(null);
   };
+
+  // 關閉預約詳情
+  const handleCloseAppointmentDetail = () => {
+    setSelectedAppointment(null);
+  };
+
+  // 過濾有權限的選單項目
+  const filteredMenuItems = MENU_ITEMS.filter(item => 
+    hasPermission(item.permission as any)
+  );
 
   // 權限等級顯示
   const getRoleBadge = (role: string) => {
@@ -111,191 +157,261 @@ export function AdminDashboard() {
 
   const roleBadge = getRoleBadge(staff?.role || 'staff');
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50">
-      {/* Top Navigation Bar */}
-      <nav className="bg-white shadow-sm border-b border-pink-100 sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            {/* Left: Logo & Toggle */}
-            <div className="flex items-center">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 rounded-lg hover:bg-pink-50 lg:hidden"
-              >
-                <svg className="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-              <div className="flex items-center ml-2 lg:ml-0">
-                <div className="w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-400 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                  </svg>
-                </div>
-                <div className="ml-3 hidden sm:block">
-                  <h1 className="text-lg font-bold text-slate-800">Flower Admin</h1>
-                  <p className="text-xs text-slate-400">管理後台</p>
-                </div>
-              </div>
+  // 渲染主要內容
+  const renderContent = () => {
+    switch (activeMenu) {
+      case 'calendar':
+        return (
+          <>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <Card className="bg-gradient-to-br from-pink-50 to-white border-pink-100">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500">今日預約</p>
+                      <p className="text-2xl font-bold text-slate-800">{stats.todayAppointments}</p>
+                    </div>
+                    <div className="w-12 h-12 bg-pink-100 rounded-xl flex items-center justify-center">
+                      <Calendar className="w-6 h-6 text-pink-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-yellow-50 to-white border-yellow-100">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500">待確認</p>
+                      <p className="text-2xl font-bold text-yellow-600">{stats.pendingAppointments}</p>
+                    </div>
+                    <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                      <Clock className="w-6 h-6 text-yellow-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-green-50 to-white border-green-100">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500">今日報到</p>
+                      <p className="text-2xl font-bold text-green-600">{stats.checkedInToday}</p>
+                    </div>
+                    <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                      <CheckCircle className="w-6 h-6 text-green-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-blue-50 to-white border-blue-100">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-slate-500">總客戶數</p>
+                      <p className="text-2xl font-bold text-slate-800">{stats.totalCustomers}</p>
+                    </div>
+                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <UserPlus className="w-6 h-6 text-blue-500" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
-            {/* Right: User Info */}
-            <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center space-x-3">
-                <div className="text-right">
-                  <p className="text-sm font-medium text-slate-700">{staff?.staff_name}</p>
-                  <p className="text-xs text-slate-400">{staff?.staff_position}</p>
-                </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${roleBadge.bg} ${roleBadge.text}`}>
+            {/* Calendar */}
+            <AppointmentCalendar
+              key={refreshKey}
+              organizationId={staff?.organization_id || 1}
+            />
+          </>
+        );
+      case 'analytics':
+        return <AnalyticsCharts organizationId={staff?.organization_id || 1} />;
+      case 'customers':
+        return (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Users className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+              <h3 className="text-lg font-medium text-slate-600 mb-2">客戶管理</h3>
+              <p className="text-slate-400">此功能開發中，敬請期待</p>
+            </CardContent>
+          </Card>
+        );
+      case 'settings':
+        return (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Settings className="w-16 h-16 mx-auto text-slate-300 mb-4" />
+              <h3 className="text-lg font-medium text-slate-600 mb-2">系統設定</h3>
+              <p className="text-slate-400">此功能開發中，敬請期待</p>
+            </CardContent>
+          </Card>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-white to-rose-50">
+      {/* 頂部導航列 */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-pink-100 shadow-sm">
+        <div className="flex items-center justify-between px-4 h-16">
+          {/* 左側 - 選單切換 & Logo */}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-pink-50 rounded-lg transition-colors lg:hidden"
+            >
+              {isSidebarOpen ? (
+                <X className="w-5 h-5 text-slate-600" />
+              ) : (
+                <Menu className="w-5 h-5 text-slate-600" />
+              )}
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center shadow-lg shadow-pink-500/30">
+                <span className="text-white font-bold text-lg">F</span>
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="font-bold text-slate-800">Flower Clinic</h1>
+                <p className="text-xs text-slate-400">管理後台</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 右側 - 通知 & 用戶資訊 */}
+          <div className="flex items-center gap-3">
+            <button className="p-2 hover:bg-pink-50 rounded-lg transition-colors relative">
+              <Bell className="w-5 h-5 text-slate-600" />
+              {stats.pendingAppointments > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-pink-500 rounded-full text-white text-xs flex items-center justify-center">
+                  {stats.pendingAppointments > 9 ? '9+' : stats.pendingAppointments}
+                </span>
+              )}
+            </button>
+            <div className="hidden sm:flex items-center gap-3 pl-3 border-l border-slate-200">
+              <div className="text-right">
+                <p className="text-sm font-medium text-slate-700">{staff?.name || '管理員'}</p>
+                <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', roleBadge.bg, roleBadge.text)}>
                   {roleBadge.label}
                 </span>
               </div>
-              <button
-                onClick={logout}
-                className="p-2 rounded-lg hover:bg-pink-50 text-slate-500 hover:text-pink-500 transition-colors"
-                title="登出"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-400 to-rose-400 flex items-center justify-center shadow-md">
+                <span className="text-white font-medium">
+                  {(staff?.name || 'A').charAt(0)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
-      </nav>
+      </header>
 
       <div className="flex">
-        {/* Sidebar */}
-        <aside className={`${sidebarOpen ? 'w-64' : 'w-0 lg:w-20'} bg-white border-r border-pink-100 min-h-[calc(100vh-4rem)] transition-all duration-300 overflow-hidden`}>
-          <div className="p-4">
-            <nav className="space-y-2">
-              <a
-                href="#"
-                className="flex items-center px-4 py-3 rounded-xl bg-gradient-to-r from-pink-500 to-rose-400 text-white"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className={`ml-3 ${sidebarOpen ? 'block' : 'hidden lg:hidden'}`}>預約管理</span>
-              </a>
+        {/* 側邊欄 */}
+        <aside
+          className={cn(
+            'fixed lg:sticky top-16 left-0 z-30 h-[calc(100vh-4rem)] bg-white border-r border-pink-100 transition-all duration-300',
+            isSidebarOpen ? 'w-64' : 'w-0 lg:w-20',
+            !isSidebarOpen && 'overflow-hidden'
+          )}
+        >
+          <nav className="p-4 space-y-2">
+            {filteredMenuItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeMenu === item.id;
               
-              {hasPermission('super_general') && (
-                <>
-                  <a
-                    href="#"
-                    className="flex items-center px-4 py-3 rounded-xl text-slate-600 hover:bg-pink-50 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    <span className={`ml-3 ${sidebarOpen ? 'block' : 'hidden lg:hidden'}`}>客戶管理</span>
-                  </a>
-                  <a
-                    href="#"
-                    className="flex items-center px-4 py-3 rounded-xl text-slate-600 hover:bg-pink-50 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    <span className={`ml-3 ${sidebarOpen ? 'block' : 'hidden lg:hidden'}`}>報表分析</span>
-                  </a>
-                </>
-              )}
-
-              {hasPermission('admin') && (
-                <a
-                  href="#"
-                  className="flex items-center px-4 py-3 rounded-xl text-slate-600 hover:bg-pink-50 transition-colors"
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveMenu(item.id as MenuId)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all',
+                    isActive
+                      ? 'bg-gradient-to-r from-pink-500 to-rose-400 text-white shadow-lg shadow-pink-500/30'
+                      : 'text-slate-600 hover:bg-pink-50'
+                  )}
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  <span className={`ml-3 ${sidebarOpen ? 'block' : 'hidden lg:hidden'}`}>系統設定</span>
-                </a>
+                  <Icon className={cn('w-5 h-5 flex-shrink-0', isActive && 'text-white')} />
+                  <span
+                    className={cn(
+                      'font-medium transition-opacity',
+                      !isSidebarOpen && 'lg:hidden'
+                    )}
+                  >
+                    {item.label}
+                  </span>
+                  {isActive && isSidebarOpen && (
+                    <ChevronRight className="w-4 h-4 ml-auto" />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* 登出按鈕 */}
+          <div className="absolute bottom-4 left-4 right-4">
+            <Button
+              variant="outline"
+              onClick={handleLogout}
+              className={cn(
+                'w-full justify-start gap-3 text-slate-600 hover:text-red-500 hover:border-red-200 hover:bg-red-50',
+                !isSidebarOpen && 'lg:justify-center'
               )}
-            </nav>
+            >
+              <LogOut className="w-5 h-5" />
+              <span className={cn(!isSidebarOpen && 'lg:hidden')}>登出</span>
+            </Button>
           </div>
         </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 p-4 lg:p-6">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-pink-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">今日預約</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.todayAppointments}</p>
-                </div>
-                <div className="w-12 h-12 bg-pink-100 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-pink-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">待確認</p>
-                  <p className="text-2xl font-bold text-yellow-600">{stats.pendingAppointments}</p>
-                </div>
-                <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-pink-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">今日報到</p>
-                  <p className="text-2xl font-bold text-green-600">{stats.checkedInToday}</p>
-                </div>
-                <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-pink-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-500">總客戶數</p>
-                  <p className="text-2xl font-bold text-slate-800">{stats.totalCustomers}</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                  <svg className="w-6 h-6 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-              </div>
-            </div>
+        {/* 主要內容區 */}
+        <main
+          className={cn(
+            'flex-1 p-4 lg:p-6 transition-all duration-300 min-h-[calc(100vh-4rem)]',
+            isSidebarOpen ? 'lg:ml-0' : 'lg:ml-0'
+          )}
+        >
+          {/* 頁面標題 */}
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-slate-800">
+              {MENU_ITEMS.find(item => item.id === activeMenu)?.label}
+            </h2>
+            <p className="text-slate-500 mt-1">
+              {activeMenu === 'calendar' && '管理診所的所有預約'}
+              {activeMenu === 'analytics' && '查看診所營運數據與趨勢分析'}
+              {activeMenu === 'customers' && '管理客戶資料與會員'}
+              {activeMenu === 'settings' && '系統設定與偏好'}
+            </p>
           </div>
 
-          {/* Calendar */}
-          <AppointmentCalendar
-            key={refreshKey}
-            onSelectAppointment={setSelectedAppointment}
-          />
+          {/* 內容區域 */}
+          {renderContent()}
         </main>
       </div>
 
-      {/* Appointment Detail Modal */}
+      {/* 預約詳情 Modal */}
       {selectedAppointment && (
         <AppointmentDetailModal
           appointment={selectedAppointment}
-          onClose={() => setSelectedAppointment(null)}
+          onClose={handleCloseAppointmentDetail}
           onUpdate={handleAppointmentUpdate}
+        />
+      )}
+
+      {/* 行動版側邊欄遮罩 */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/20 z-20 lg:hidden"
+          onClick={() => setIsSidebarOpen(false)}
         />
       )}
     </div>
   );
 }
+
+export default AdminDashboard;

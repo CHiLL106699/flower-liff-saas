@@ -1,155 +1,223 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
+import type { User, Session } from '@supabase/supabase-js';
 
 // 權限等級定義
 export type StaffRole = 'admin' | 'super_senior' | 'super_general' | 'staff';
 
-export interface StaffAccount {
-  id: number;
-  staff_id: number;
-  username: string;
-  role: StaffRole;
-  staff_name: string;
-  staff_position: string;
-  organization_id: number;
-}
-
-interface AdminAuthContextType {
-  staff: StaffAccount | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
-  hasPermission: (requiredRole: StaffRole) => boolean;
-}
-
-const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
-
-// 權限等級對照表 (數字越大權限越高)
-const ROLE_LEVELS: Record<StaffRole, number> = {
+// 權限等級順序 (數字越大權限越高)
+const ROLE_HIERARCHY: Record<StaffRole, number> = {
   staff: 1,
   super_general: 2,
   super_senior: 3,
   admin: 4,
 };
 
+// 員工資料介面
+export interface StaffInfo {
+  id: number;
+  organization_id: number;
+  name: string;
+  position: string;
+  role: StaffRole;
+  email: string;
+  user_id: string;
+}
+
+// Context 介面
+interface AdminAuthContextType {
+  user: User | null;
+  session: Session | null;
+  staff: StaffInfo | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+  hasPermission: (requiredRole: StaffRole) => boolean;
+}
+
+const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
+
+// Provider 元件
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
-  const [staff, setStaff] = useState<StaffAccount | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [staff, setStaff] = useState<StaffInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // 初始化時檢查 localStorage 中的 session
-  useEffect(() => {
-    const storedSession = localStorage.getItem('admin_session');
-    if (storedSession) {
-      try {
-        const parsed = JSON.parse(storedSession);
-        // 驗證 session 是否過期 (24 小時)
-        if (parsed.expires_at && new Date(parsed.expires_at) > new Date()) {
-          setStaff(parsed.staff);
-        } else {
-          localStorage.removeItem('admin_session');
-        }
-      } catch {
-        localStorage.removeItem('admin_session');
-      }
-    }
-    setIsLoading(false);
-  }, []);
-
-  const login = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  // 取得員工資料
+  const fetchStaffInfo = async (userId: string, userEmail: string) => {
     try {
-      // 查詢員工帳號
-      const { data, error } = await supabase
-        .from('staff_accounts')
-        .select(`
-          id,
-          staff_id,
-          username,
-          password_hash,
-          role,
-          is_active,
-          staff:staff_id (
-            id,
-            name,
-            position,
-            organization_id
-          )
-        `)
-        .eq('username', username)
-        .eq('is_active', true)
+      // 先從 staff_credentials 查詢
+      const { data: credentials, error: credError } = await supabase
+        .from('staff_credentials')
+        .select('*')
+        .eq('id', userId)
         .single();
 
-      if (error || !data) {
-        return { success: false, error: '帳號或密碼錯誤' };
+      if (credentials && !credError) {
+        // 取得對應的 staff 資料
+        const { data: staffData } = await supabase
+          .from('staff')
+          .select('*')
+          .eq('id', credentials.staff_id)
+          .single();
+
+        if (staffData) {
+          setStaff({
+            id: staffData.id,
+            organization_id: credentials.organization_id,
+            name: staffData.name,
+            position: staffData.position,
+            role: credentials.role as StaffRole,
+            email: userEmail,
+            user_id: userId,
+          });
+          return;
+        }
       }
 
-      // 驗證密碼 (簡單比對，生產環境應使用 bcrypt)
-      if (data.password_hash !== password) {
-        return { success: false, error: '帳號或密碼錯誤' };
+      // 如果沒有 staff_credentials，嘗試從 staff 表直接查詢 (向後兼容)
+      const { data: staffByEmail } = await supabase
+        .from('staff')
+        .select('*')
+        .eq('organization_id', 1) // 預設組織
+        .limit(1)
+        .single();
+
+      if (staffByEmail) {
+        // 根據 position 判斷 role
+        let role: StaffRole = 'staff';
+        if (staffByEmail.position === 'admin') role = 'admin';
+        else if (staffByEmail.position === 'super_senior') role = 'super_senior';
+        else if (staffByEmail.position === 'super_general') role = 'super_general';
+
+        setStaff({
+          id: staffByEmail.id,
+          organization_id: staffByEmail.organization_id,
+          name: staffByEmail.name,
+          position: staffByEmail.position,
+          role,
+          email: userEmail,
+          user_id: userId,
+        });
       }
-
-      // 取得員工資訊
-      const staffInfo = data.staff as unknown as { id: number; name: string; position: string; organization_id: number };
-      
-      const staffAccount: StaffAccount = {
-        id: data.id,
-        staff_id: data.staff_id,
-        username: data.username,
-        role: data.role as StaffRole,
-        staff_name: staffInfo.name,
-        staff_position: staffInfo.position,
-        organization_id: staffInfo.organization_id,
-      };
-
-      // 更新最後登入時間
-      await supabase
-        .from('staff_accounts')
-        .update({ last_login: new Date().toISOString() })
-        .eq('id', data.id);
-
-      // 儲存 session (24 小時有效)
-      const expiresAt = new Date();
-      expiresAt.setHours(expiresAt.getHours() + 24);
-      
-      localStorage.setItem('admin_session', JSON.stringify({
-        staff: staffAccount,
-        expires_at: expiresAt.toISOString(),
-      }));
-
-      setStaff(staffAccount);
-      return { success: true };
     } catch (err) {
-      console.error('Login error:', err);
-      return { success: false, error: '登入失敗，請稍後再試' };
+      console.error('Error fetching staff info:', err);
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('admin_session');
+  // 初始化：檢查現有 session
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        
+        if (currentSession?.user) {
+          setSession(currentSession);
+          setUser(currentSession.user);
+          await fetchStaffInfo(currentSession.user.id, currentSession.user.email || '');
+        }
+      } catch (err) {
+        console.error('Auth init error:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initAuth();
+
+    // 監聽 auth 狀態變化
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (_event, newSession) => {
+        setSession(newSession);
+        setUser(newSession?.user || null);
+        
+        if (newSession?.user) {
+          await fetchStaffInfo(newSession.user.id, newSession.user.email || '');
+        } else {
+          setStaff(null);
+        }
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 登入
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        const errorMsg = authError.message === 'Invalid login credentials'
+          ? '帳號或密碼錯誤'
+          : authError.message;
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
+      }
+
+      if (data.user) {
+        setUser(data.user);
+        setSession(data.session);
+        await fetchStaffInfo(data.user.id, data.user.email || '');
+        return { success: true };
+      }
+
+      return { success: false, error: '登入失敗' };
+    } catch (err) {
+      const errorMsg = '登入過程發生錯誤';
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 登出
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setSession(null);
     setStaff(null);
   };
 
+  // 權限檢查
   const hasPermission = (requiredRole: StaffRole): boolean => {
     if (!staff) return false;
-    return ROLE_LEVELS[staff.role] >= ROLE_LEVELS[requiredRole];
+    return ROLE_HIERARCHY[staff.role] >= ROLE_HIERARCHY[requiredRole];
+  };
+
+  const value: AdminAuthContextType = {
+    user,
+    session,
+    staff,
+    isAuthenticated: !!user && !!staff,
+    isLoading,
+    error,
+    login,
+    logout,
+    hasPermission,
   };
 
   return (
-    <AdminAuthContext.Provider
-      value={{
-        staff,
-        isLoading,
-        isAuthenticated: !!staff,
-        login,
-        logout,
-        hasPermission,
-      }}
-    >
+    <AdminAuthContext.Provider value={value}>
       {children}
     </AdminAuthContext.Provider>
   );
 }
 
+// Hook
 export function useAdminAuth() {
   const context = useContext(AdminAuthContext);
   if (context === undefined) {

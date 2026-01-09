@@ -1,341 +1,261 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
-import { useAdminAuth } from '../../contexts/AdminAuthContext';
-
-interface Appointment {
-  id: number;
-  user_id: number;
-  treatment_id: number;
-  doctor_id: number | null;
-  appointment_time: string;
-  status: 'pending' | 'confirmed' | 'checked_in' | 'completed' | 'cancelled';
-  notes: string | null;
-  created_at: string;
-  // Joined data
-  user_name?: string;
-  user_phone?: string;
-  treatment_name?: string;
-  doctor_name?: string;
-}
+import { useState, useMemo, useCallback } from 'react';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+import type { EventClickArg, DateSelectArg } from '@fullcalendar/core';
+import { useAppointments, type Appointment, type AppointmentStatus } from '../../hooks/useAppointments';
+import { AppointmentDetailModal } from './AppointmentDetailModal';
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
+import { RefreshCw, Calendar, Clock, Users, CheckCircle } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
 interface AppointmentCalendarProps {
-  onSelectAppointment: (appointment: Appointment) => void;
+  organizationId?: number;
+  onSelectAppointment?: (appointment: Appointment) => void;
 }
 
-// 狀態顏色對照
-const STATUS_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: '待確認' },
-  confirmed: { bg: 'bg-blue-100', text: 'text-blue-700', label: '已確認' },
-  checked_in: { bg: 'bg-green-100', text: 'text-green-700', label: '已報到' },
-  completed: { bg: 'bg-slate-100', text: 'text-slate-700', label: '已完成' },
-  cancelled: { bg: 'bg-red-100', text: 'text-red-700', label: '已取消' },
+// 狀態顏色映射
+const STATUS_COLORS: Record<AppointmentStatus, string> = {
+  pending: '#fbbf24',      // 黃色
+  confirmed: '#3b82f6',    // 藍色
+  checked_in: '#10b981',   // 綠色
+  completed: '#8b5cf6',    // 紫色
+  cancelled: '#94a3b8',    // 灰色
 };
 
-export function AppointmentCalendar({ onSelectAppointment }: AppointmentCalendarProps) {
-  const { staff } = useAdminAuth();
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
+// 狀態文字映射
+const STATUS_LABELS: Record<AppointmentStatus, string> = {
+  pending: '待確認',
+  confirmed: '已確認',
+  checked_in: '已報到',
+  completed: '已完成',
+  cancelled: '已取消',
+};
 
-  // 取得當月的日期範圍
-  const getMonthDays = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    
-    // 取得該月第一天是星期幾 (0 = 週日)
-    const startDayOfWeek = firstDay.getDay();
-    
-    // 產生日曆格子
-    const days: (Date | null)[] = [];
-    
-    // 填充前面的空白
-    for (let i = 0; i < startDayOfWeek; i++) {
-      days.push(null);
-    }
-    
-    // 填充該月的日期
-    for (let d = 1; d <= lastDay.getDate(); d++) {
-      days.push(new Date(year, month, d));
-    }
-    
-    return days;
-  };
+export function AppointmentCalendar({ organizationId = 1 }: AppointmentCalendarProps) {
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [currentView, setCurrentView] = useState<'dayGridMonth' | 'timeGridWeek' | 'timeGridDay'>('dayGridMonth');
 
-  // 取得預約資料
-  const fetchAppointments = async () => {
-    if (!staff) return;
-    
-    setIsLoading(true);
-    
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const startDate = new Date(year, month, 1).toISOString();
-    const endDate = new Date(year, month + 1, 0, 23, 59, 59).toISOString();
+  const {
+    appointments,
+    stats,
+    isLoading,
+    refresh,
+  } = useAppointments({
+    organizationId,
+    autoRefresh: true,
+    refreshInterval: 30000,
+  });
 
-    try {
-      // 查詢預約資料
-      const { data: appointmentsData, error } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          user_id,
-          treatment_id,
-          doctor_id,
-          appointment_time,
-          status,
-          notes,
-          created_at
-        `)
-        .eq('organization_id', staff.organization_id)
-        .gte('appointment_time', startDate)
-        .lte('appointment_time', endDate)
-        .order('appointment_time', { ascending: true });
+  // 轉換預約資料為 FullCalendar 事件格式
+  const calendarEvents = useMemo(() => {
+    return appointments.map(apt => ({
+      id: String(apt.id),
+      title: `${apt.user?.real_name || '未知客戶'} - ${apt.treatment?.name || '未知療程'}`,
+      start: apt.appointment_time,
+      end: apt.treatment?.duration_minutes
+        ? new Date(new Date(apt.appointment_time).getTime() + apt.treatment.duration_minutes * 60000).toISOString()
+        : apt.appointment_time,
+      backgroundColor: STATUS_COLORS[apt.status],
+      borderColor: STATUS_COLORS[apt.status],
+      extendedProps: {
+        appointment: apt,
+      },
+    }));
+  }, [appointments]);
 
-      if (error) {
-        console.error('Error fetching appointments:', error);
-        return;
-      }
+  // 點擊事件處理
+  const handleEventClick = useCallback((info: EventClickArg) => {
+    const appointment = info.event.extendedProps.appointment as Appointment;
+    setSelectedAppointment(appointment);
+    setIsModalOpen(true);
+  }, []);
 
-      // 取得關聯資料
-      if (appointmentsData && appointmentsData.length > 0) {
-        // 取得用戶資料
-        const userIds = [...new Set(appointmentsData.map(a => a.user_id))];
-        const { data: usersData } = await supabase
-          .from('organization_users')
-          .select('user_id, customer_real_name, customer_phone')
-          .eq('organization_id', staff.organization_id)
-          .in('user_id', userIds);
+  // 日期選擇處理 (未來可用於新增預約)
+  const handleDateSelect = useCallback((_selectInfo: DateSelectArg) => {
+    // TODO: 開啟新增預約 Modal
+    console.log('Date selected:', _selectInfo);
+  }, []);
 
-        // 取得療程資料
-        const treatmentIds = [...new Set(appointmentsData.map(a => a.treatment_id))];
-        const { data: treatmentsData } = await supabase
-          .from('treatments')
-          .select('id, name')
-          .in('id', treatmentIds);
-
-        // 取得醫師資料
-        const doctorIds = [...new Set(appointmentsData.filter(a => a.doctor_id).map(a => a.doctor_id))];
-        const { data: doctorsData } = await supabase
-          .from('staff')
-          .select('id, name')
-          .in('id', doctorIds);
-
-        // 合併資料
-        const enrichedAppointments = appointmentsData.map(apt => {
-          const user = usersData?.find(u => u.user_id === apt.user_id);
-          const treatment = treatmentsData?.find(t => t.id === apt.treatment_id);
-          const doctor = doctorsData?.find(d => d.id === apt.doctor_id);
-
-          return {
-            ...apt,
-            user_name: user?.customer_real_name || '未知',
-            user_phone: user?.customer_phone || '',
-            treatment_name: treatment?.name || '未知療程',
-            doctor_name: doctor?.name || '未指定',
-          };
-        });
-
-        setAppointments(enrichedAppointments);
-      } else {
-        setAppointments([]);
-      }
-    } catch (err) {
-      console.error('Error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAppointments();
-  }, [currentDate, staff]);
-
-  // 取得某天的預約
-  const getAppointmentsForDay = (date: Date | null) => {
-    if (!date) return [];
-    const dateStr = date.toISOString().split('T')[0];
-    return appointments.filter(apt => apt.appointment_time.startsWith(dateStr));
-  };
-
-  // 切換月份
-  const navigateMonth = (direction: number) => {
-    setCurrentDate(prev => {
-      const newDate = new Date(prev);
-      newDate.setMonth(newDate.getMonth() + direction);
-      return newDate;
-    });
-  };
-
-  // 格式化時間 (24小時制)
-  const formatTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false });
-  };
-
-  // 判斷是否為今天
-  const isToday = (date: Date | null) => {
-    if (!date) return false;
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
-
-  const days = getMonthDays(currentDate);
-  const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+  // 關閉 Modal
+  const handleCloseModal = useCallback(() => {
+    setIsModalOpen(false);
+    setSelectedAppointment(null);
+  }, []);
 
   return (
-    <div className="bg-white rounded-2xl shadow-lg border border-pink-100 overflow-hidden">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-pink-500 to-rose-400 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => navigateMonth(-1)}
-              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-            >
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <h2 className="text-xl font-bold text-white">
-              {currentDate.getFullYear()} 年 {currentDate.getMonth() + 1} 月
-            </h2>
-            <button
-              onClick={() => navigateMonth(1)}
-              className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-            >
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setCurrentDate(new Date())}
-              className="px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-sm rounded-lg transition-colors"
-            >
-              今天
-            </button>
-            <div className="flex bg-white/20 rounded-lg p-0.5">
-              {(['month', 'week', 'day'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    viewMode === mode
-                      ? 'bg-white text-pink-500'
-                      : 'text-white hover:bg-white/20'
-                  }`}
-                >
-                  {mode === 'month' ? '月' : mode === 'week' ? '週' : '日'}
-                </button>
-              ))}
+    <div className="space-y-6">
+      {/* 統計卡片 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="bg-gradient-to-br from-pink-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">今日預約</p>
+                <p className="text-2xl font-bold text-slate-800">{stats.todayTotal}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-pink-100 flex items-center justify-center">
+                <Calendar className="w-6 h-6 text-pink-500" />
+              </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-yellow-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">待確認</p>
+                <p className="text-2xl font-bold text-slate-800">{stats.pendingCount}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-yellow-100 flex items-center justify-center">
+                <Clock className="w-6 h-6 text-yellow-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-emerald-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">今日報到</p>
+                <p className="text-2xl font-bold text-slate-800">{stats.checkedInCount}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-blue-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-500">總客戶數</p>
+                <p className="text-2xl font-bold text-slate-800">{stats.totalCustomers}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                <Users className="w-6 h-6 text-blue-500" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Calendar Grid */}
-      <div className="p-4">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-96">
-            <div className="animate-spin rounded-full h-12 w-12 border-4 border-pink-200 border-t-pink-500"></div>
-          </div>
-        ) : (
-          <>
-            {/* Week Days Header */}
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {weekDays.map((day, index) => (
-                <div
-                  key={day}
-                  className={`text-center py-2 text-sm font-medium ${
-                    index === 0 ? 'text-red-400' : index === 6 ? 'text-blue-400' : 'text-slate-500'
-                  }`}
-                >
-                  {day}
+      {/* 行事曆卡片 */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-4">
+          <CardTitle className="text-lg font-semibold">預約行事曆</CardTitle>
+          <div className="flex items-center gap-2">
+            {/* 狀態圖例 */}
+            <div className="hidden md:flex items-center gap-3 mr-4">
+              {Object.entries(STATUS_LABELS).map(([status, label]) => (
+                <div key={status} className="flex items-center gap-1.5">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: STATUS_COLORS[status as AppointmentStatus] }}
+                  />
+                  <span className="text-xs text-slate-500">{label}</span>
                 </div>
               ))}
             </div>
+            
+            {/* 刷新按鈕 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refresh}
+              disabled={isLoading}
+              className="gap-2"
+            >
+              <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+              刷新
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {/* 視圖切換 (Mobile) */}
+          <div className="flex md:hidden gap-2 mb-4">
+            <Badge
+              variant={currentView === 'dayGridMonth' ? 'default' : 'outline'}
+              className="cursor-pointer"
+              onClick={() => setCurrentView('dayGridMonth')}
+            >
+              月
+            </Badge>
+            <Badge
+              variant={currentView === 'timeGridWeek' ? 'default' : 'outline'}
+              className="cursor-pointer"
+              onClick={() => setCurrentView('timeGridWeek')}
+            >
+              週
+            </Badge>
+            <Badge
+              variant={currentView === 'timeGridDay' ? 'default' : 'outline'}
+              className="cursor-pointer"
+              onClick={() => setCurrentView('timeGridDay')}
+            >
+              日
+            </Badge>
+          </div>
 
-            {/* Calendar Days */}
-            <div className="grid grid-cols-7 gap-1">
-              {days.map((date, index) => {
-                const dayAppointments = getAppointmentsForDay(date);
-                const dayOfWeek = index % 7;
-                
-                return (
-                  <div
-                    key={index}
-                    className={`min-h-[120px] p-1 rounded-lg border transition-colors ${
-                      date
-                        ? isToday(date)
-                          ? 'bg-pink-50 border-pink-300'
-                          : 'bg-white border-slate-100 hover:border-pink-200'
-                        : 'bg-slate-50 border-transparent'
-                    }`}
-                  >
-                    {date && (
-                      <>
-                        <div className={`text-right mb-1 ${
-                          isToday(date)
-                            ? 'text-pink-500 font-bold'
-                            : dayOfWeek === 0
-                              ? 'text-red-400'
-                              : dayOfWeek === 6
-                                ? 'text-blue-400'
-                                : 'text-slate-600'
-                        }`}>
-                          <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
-                            isToday(date) ? 'bg-pink-500 text-white' : ''
-                          }`}>
-                            {date.getDate()}
-                          </span>
-                        </div>
-                        
-                        {/* Appointments */}
-                        <div className="space-y-1 overflow-y-auto max-h-[80px]">
-                          {dayAppointments.slice(0, 3).map((apt) => (
-                            <button
-                              key={apt.id}
-                              onClick={() => onSelectAppointment(apt)}
-                              className={`w-full text-left px-1.5 py-0.5 rounded text-xs truncate ${
-                                STATUS_COLORS[apt.status]?.bg || 'bg-slate-100'
-                              } ${STATUS_COLORS[apt.status]?.text || 'text-slate-600'} hover:opacity-80 transition-opacity`}
-                            >
-                              <span className="font-medium">{formatTime(apt.appointment_time)}</span>
-                              <span className="ml-1">{apt.user_name}</span>
-                            </button>
-                          ))}
-                          {dayAppointments.length > 3 && (
-                            <div className="text-xs text-slate-400 text-center">
-                              +{dayAppointments.length - 3} 筆
-                            </div>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
+          {/* FullCalendar */}
+          <div className="fc-wrapper">
+            <FullCalendar
+              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+              initialView={currentView}
+              headerToolbar={{
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,timeGridDay',
+              }}
+              locale="zh-tw"
+              buttonText={{
+                today: '今天',
+                month: '月',
+                week: '週',
+                day: '日',
+              }}
+              events={calendarEvents}
+              eventClick={handleEventClick}
+              selectable={true}
+              select={handleDateSelect}
+              editable={false}
+              dayMaxEvents={3}
+              moreLinkText={(n) => `還有 ${n} 筆`}
+              height="auto"
+              aspectRatio={1.8}
+              slotMinTime="08:00:00"
+              slotMaxTime="22:00:00"
+              allDaySlot={false}
+              slotDuration="00:30:00"
+              eventTimeFormat={{
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              }}
+              viewDidMount={(info) => setCurrentView(info.view.type as typeof currentView)}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Legend */}
-      <div className="px-6 py-3 bg-slate-50 border-t border-slate-100">
-        <div className="flex flex-wrap gap-4 text-xs">
-          {Object.entries(STATUS_COLORS).map(([status, colors]) => (
-            <div key={status} className="flex items-center space-x-1">
-              <span className={`w-3 h-3 rounded ${colors.bg}`}></span>
-              <span className="text-slate-500">{colors.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* 預約詳情 Modal */}
+      {selectedAppointment && isModalOpen && (
+        <AppointmentDetailModal
+          appointment={selectedAppointment}
+          onClose={handleCloseModal}
+          onUpdate={refresh}
+        />
+      )}
     </div>
   );
 }
+
+export default AppointmentCalendar;
