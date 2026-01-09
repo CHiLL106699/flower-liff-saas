@@ -4,12 +4,13 @@
  * Theme: Flower Pink (粉色系 - 花花醫美品牌)
  * 
  * 整合六宮格首頁與所有 LIFF 功能頁面
- * 支援角色權限分流：客戶版 / 員工版
+ * 支援角色權限分流：客戶版 / 員工版 / 管理版
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { OnboardingProvider } from './components/OnboardingGate';
 import { AdminPage } from './pages/admin';
+import SuperAdminPage from './pages/super-admin';
 import type { GatewayResult } from './lib/liff-auth';
 
 // LIFF Pages - 客戶版
@@ -340,6 +341,9 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Super Admin Route - SaaS 總分配管理平台 */}
+        <Route path="/super-admin/*" element={<SuperAdminPage />} />
+
         {/* Admin Route - 獨立於 LIFF 認證流程 (電腦版後台) */}
         <Route path="/admin/*" element={<AdminPage />} />
         
