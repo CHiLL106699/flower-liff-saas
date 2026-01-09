@@ -8,6 +8,11 @@ export default defineConfig({
     port: 3000,
     host: true,
   },
+  preview: {
+    port: 4173,
+    host: true,
+    allowedHosts: ['all'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,
