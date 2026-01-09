@@ -3,181 +3,291 @@
  * 
  * Theme: Flower Pink (粉色系 - 花花醫美品牌)
  * 
- * 展示如何使用 OnboardingGate 元件包裝整個應用程式
+ * 整合六宮格首頁與所有 LIFF 功能頁面
  * 確保所有使用者在存取任何功能前都已完成身份綁定
  */
 
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { OnboardingProvider, useOnboarding } from './components/OnboardingGate';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { OnboardingProvider } from './components/OnboardingGate';
 import { AdminPage } from './pages/admin';
 import type { GatewayResult } from './lib/liff-auth';
 
+// LIFF Pages
+import LiffHome from './pages/liff/LiffHome';
+import LiffWeight from './pages/liff/LiffWeight';
+import LiffFeedback from './pages/liff/LiffFeedback';
+import LiffProfile from './pages/liff/LiffProfile';
+import LiffMall from './pages/liff/LiffMall';
+import { useState, useEffect } from 'react';
+import { supabase } from './lib/supabase';
+import { ArrowLeft, Calendar, Loader2 } from 'lucide-react';
+import { Button } from './components/ui/button';
+
 // ============================================================================
-// Pages - Flower Pink Theme
+// Booking Page - 預約頁面 (完整功能版)
 // ============================================================================
 
-/**
- * 首頁 - 功能選單 (Flower Pink Theme)
- */
-const HomePage: React.FC = () => {
-  const { profile } = useOnboarding();
+interface Treatment {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  duration: number;
+  category: string;
+}
+
+interface Staff {
+  id: number;
+  name: string;
+  title: string;
+  specialties: string[];
+}
+
+const BookingPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const preselectedTreatment = searchParams.get('treatment');
+  
+  const [treatments, setTreatments] = useState<Treatment[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
+  const [selectedTreatment, setSelectedTreatment] = useState<number | null>(
+    preselectedTreatment ? parseInt(preselectedTreatment) : null
+  );
+  const [selectedStaff, setSelectedStaff] = useState<number | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedTime, setSelectedTime] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const getOrganizationId = () => parseInt(import.meta.env.VITE_ORGANIZATION_ID || '1');
+  const getUserId = () => {
+    const userId = localStorage.getItem('flower_user_id');
+    return userId ? parseInt(userId) : null;
+  };
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // 載入療程
+        const { data: treatmentData, error: treatmentError } = await supabase
+          .from('treatments')
+          .select('*')
+          .eq('organization_id', getOrganizationId())
+          .eq('is_active', true);
+
+        if (treatmentError) throw treatmentError;
+        setTreatments(treatmentData || []);
+
+        // 載入醫師
+        const { data: staffData, error: staffError } = await supabase
+          .from('staff')
+          .select('*')
+          .eq('organization_id', getOrganizationId())
+          .eq('is_active', true);
+
+        if (staffError) throw staffError;
+        setStaff(staffData || []);
+
+      } catch (error) {
+        console.error('Failed to load data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // 生成可用時段
+  const timeSlots = [
+    '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
+    '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+    '17:00', '17:30', '18:00', '18:30', '19:00'
+  ];
+
+  // 生成未來 14 天的日期
+  const generateDates = () => {
+    const dates = [];
+    const today = new Date();
+    for (let i = 1; i <= 14; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+    return dates;
+  };
+
+  const availableDates = generateDates();
+
+  const handleSubmit = async () => {
+    const userId = getUserId();
+    if (!userId) {
+      alert('請先完成會員註冊');
+      navigate('/');
+      return;
+    }
+
+    if (!selectedTreatment || !selectedDate || !selectedTime) {
+      alert('請選擇療程、日期和時段');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const appointmentTime = new Date(`${selectedDate}T${selectedTime}:00`);
+      
+      const { error } = await supabase
+        .from('appointments')
+        .insert({
+          organization_id: getOrganizationId(),
+          user_id: userId,
+          treatment_id: selectedTreatment,
+          doctor_id: selectedStaff,
+          appointment_time: appointmentTime.toISOString(),
+          status: 'pending',
+          notes: ''
+        });
+
+      if (error) throw error;
+
+      alert('預約成功！我們將盡快與您確認。');
+      navigate('/profile');
+    } catch (error) {
+      console.error('Failed to create appointment:', error);
+      alert('預約失敗，請稍後再試');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50">
       {/* Header */}
-      <header className="text-center py-8 px-4">
-        <div className="w-20 h-20 mx-auto mb-4 bg-gradient-to-br from-pink-400 to-rose-400 rounded-full flex items-center justify-center shadow-lg">
-          <span className="text-3xl">🌸</span>
-        </div>
-        <h1 className="text-2xl font-bold text-slate-800 mb-1">花花醫美診所</h1>
-        <p className="text-pink-400 text-sm">Flower Medical Clinic</p>
-      </header>
-
-      <div className="px-4 pb-8">
-        {/* User Info Card */}
-        <div className="bg-white rounded-2xl p-4 mb-6 flex items-center gap-4 shadow-sm border border-pink-100">
-          {profile?.pictureUrl && (
-            <img
-              src={profile.pictureUrl}
-              alt={profile.displayName}
-              className="w-14 h-14 rounded-full border-2 border-pink-200"
-            />
-          )}
-          <div>
-            <p className="font-semibold text-slate-700">{profile?.displayName}</p>
-            <p className="text-sm text-pink-500">會員已認證 ✓</p>
-          </div>
-        </div>
-
-        {/* Feature Grid */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <FeatureCard
-            icon="📅"
-            title="預約管理"
-            description="智能排程系統"
-            href="/booking"
-            badge="立即預約"
-            badgeColor="bg-pink-500"
-          />
-          <FeatureCard
-            icon="📋"
-            title="我的療程"
-            description="療程紀錄查詢"
-            href="/records"
-          />
-          <FeatureCard
-            icon="💝"
-            title="會員優惠"
-            description="專屬優惠活動"
-            href="/offers"
-            isNew
-          />
-          <FeatureCard
-            icon="📞"
-            title="聯繫我們"
-            description="客服與諮詢"
-            href="/contact"
-          />
-        </div>
-
-        {/* Quick Actions */}
-        <div>
-          <h2 className="text-lg font-semibold mb-4 text-slate-700">快速操作</h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
-            <QuickActionButton icon="🔔" label="通知" />
-            <QuickActionButton icon="📍" label="地址" />
-            <QuickActionButton icon="⏰" label="營業時間" />
-            <QuickActionButton icon="💬" label="客服" />
-          </div>
-        </div>
-
-        {/* Promotional Banner */}
-        <div className="mt-8 bg-gradient-to-r from-pink-400 to-rose-400 rounded-2xl p-6 text-white shadow-lg">
-          <h3 className="font-bold text-lg mb-2">新春優惠活動 🎉</h3>
-          <p className="text-pink-100 text-sm mb-4">首次預約享 85 折優惠，立即體驗！</p>
-          <Link
-            to="/booking"
-            className="inline-block bg-white text-pink-500 px-6 py-2 rounded-full font-semibold text-sm hover:shadow-lg transition-all"
+      <div className="bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-4 rounded-b-3xl shadow-lg">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/')}
+            className="p-2 hover:bg-white/20 rounded-full transition-colors"
           >
-            立即預約
-          </Link>
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-6 h-6" />
+            <h1 className="text-xl font-bold">立即預約</h1>
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
 
-/**
- * 預約頁面 (Flower Pink Theme)
- */
-const BookingPage: React.FC = () => {
-  useOnboarding(); // Ensure user is authenticated
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
-      {/* Header */}
-      <header className="flex items-center gap-4 p-4 bg-white border-b border-pink-100">
-        <Link to="/" className="text-2xl text-pink-500">←</Link>
-        <h1 className="text-xl font-bold text-slate-700">預約服務</h1>
-      </header>
-
-      <div className="p-4 space-y-4">
-        {/* Treatment Selection */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-pink-100">
-          <h2 className="font-semibold mb-3 text-slate-700">選擇療程</h2>
+      <div className="px-4 py-6 space-y-4">
+        {/* 選擇療程 */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-3">選擇療程</h2>
           <div className="space-y-2">
-            <TreatmentOption
-              name="皮秒雷射"
-              duration="45 分鐘"
-              price="NT$ 12,000"
-            />
-            <TreatmentOption
-              name="肉毒桿菌"
-              duration="20 分鐘"
-              price="NT$ 6,000"
-            />
-            <TreatmentOption
-              name="玻尿酸注射"
-              duration="30 分鐘"
-              price="NT$ 8,000"
-            />
-          </div>
-        </div>
-
-        {/* Date Selection */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-pink-100">
-          <h2 className="font-semibold mb-3 text-slate-700">選擇日期</h2>
-          <div className="grid grid-cols-7 gap-2 text-center text-sm">
-            {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
-              <div key={day} className="text-pink-400 font-medium">{day}</div>
-            ))}
-            {Array.from({ length: 31 }, (_, i) => (
+            {treatments.map((treatment) => (
               <button
-                key={i}
-                className={`p-2 rounded-lg transition-all ${
-                  i === 8
-                    ? 'bg-gradient-to-r from-pink-500 to-rose-400 text-white shadow-md'
-                    : 'hover:bg-pink-50 text-slate-600'
+                key={treatment.id}
+                onClick={() => setSelectedTreatment(treatment.id)}
+                className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${
+                  selectedTreatment === treatment.id
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
+                    : 'bg-orange-50 hover:bg-orange-100 text-slate-700'
                 }`}
               >
-                {i + 1}
+                <div className="text-left">
+                  <p className="font-medium">{treatment.name}</p>
+                  <p className={`text-sm ${selectedTreatment === treatment.id ? 'text-orange-100' : 'text-slate-400'}`}>
+                    {treatment.duration} 分鐘
+                  </p>
+                </div>
+                <p className={`font-semibold ${selectedTreatment === treatment.id ? 'text-white' : 'text-orange-500'}`}>
+                  NT$ {treatment.price.toLocaleString()}
+                </p>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Time Selection */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-pink-100">
-          <h2 className="font-semibold mb-3 text-slate-700">選擇時段</h2>
+        {/* 選擇醫師 */}
+        {staff.length > 0 && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <h2 className="font-bold text-slate-800 mb-3">選擇醫師 (選填)</h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setSelectedStaff(null)}
+                className={`px-4 py-2 rounded-full text-sm transition-all ${
+                  selectedStaff === null
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+                    : 'bg-orange-50 text-slate-600 hover:bg-orange-100'
+                }`}
+              >
+                不指定
+              </button>
+              {staff.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStaff(s.id)}
+                  className={`px-4 py-2 rounded-full text-sm transition-all ${
+                    selectedStaff === s.id
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+                      : 'bg-orange-50 text-slate-600 hover:bg-orange-100'
+                  }`}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 選擇日期 */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-3">選擇日期</h2>
+          <div className="flex flex-wrap gap-2">
+            {availableDates.map((date) => {
+              const d = new Date(date);
+              const weekday = d.toLocaleDateString('zh-TW', { weekday: 'short' });
+              const dayNum = d.getDate();
+              const month = d.getMonth() + 1;
+              
+              return (
+                <button
+                  key={date}
+                  onClick={() => setSelectedDate(date)}
+                  className={`flex flex-col items-center px-3 py-2 rounded-xl transition-all min-w-[60px] ${
+                    selectedDate === date
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
+                      : 'bg-orange-50 hover:bg-orange-100 text-slate-600'
+                  }`}
+                >
+                  <span className="text-xs">{weekday}</span>
+                  <span className="font-bold">{dayNum}</span>
+                  <span className="text-xs">{month}月</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 選擇時段 */}
+        <div className="bg-white rounded-2xl p-4 shadow-sm">
+          <h2 className="font-bold text-slate-800 mb-3">選擇時段</h2>
           <div className="grid grid-cols-4 gap-2">
-            {['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '14:00', '14:30'].map((time, i) => (
+            {timeSlots.map((time) => (
               <button
                 key={time}
+                onClick={() => setSelectedTime(time)}
                 className={`py-2 px-3 rounded-lg transition-all text-sm ${
-                  i === 2
-                    ? 'bg-gradient-to-r from-pink-500 to-rose-400 text-white shadow-md'
-                    : 'bg-pink-50 hover:bg-pink-100 text-slate-600'
+                  selectedTime === time
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md'
+                    : 'bg-orange-50 hover:bg-orange-100 text-slate-600'
                 }`}
               >
                 {time}
@@ -186,117 +296,25 @@ const BookingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Submit Button */}
-        <button className="w-full bg-gradient-to-r from-pink-500 to-rose-400 text-white py-4 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all">
-          確認預約
-        </button>
+        {/* 確認預約 */}
+        <Button
+          onClick={handleSubmit}
+          disabled={isSubmitting || !selectedTreatment || !selectedDate || !selectedTime}
+          className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white py-4 rounded-xl font-semibold shadow-lg"
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              預約中...
+            </>
+          ) : (
+            '確認預約'
+          )}
+        </Button>
       </div>
     </div>
   );
 };
-
-/**
- * 療程紀錄頁面 (Flower Pink Theme)
- */
-const RecordsPage: React.FC = () => {
-  useOnboarding(); // Ensure user is authenticated
-  
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-50 to-white text-slate-700">
-      <header className="flex items-center gap-4 p-4 bg-white border-b border-pink-100">
-        <Link to="/" className="text-2xl text-pink-500">←</Link>
-        <h1 className="text-xl font-bold text-slate-700">我的療程</h1>
-      </header>
-      <div className="p-4">
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-pink-100 text-center">
-          <div className="w-16 h-16 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl">📋</span>
-          </div>
-          <p className="text-slate-500">尚無療程紀錄</p>
-          <Link
-            to="/booking"
-            className="inline-block mt-4 bg-gradient-to-r from-pink-500 to-rose-400 text-white px-6 py-2 rounded-full font-semibold text-sm"
-          >
-            立即預約
-          </Link>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// UI Components - Flower Pink Theme
-// ============================================================================
-
-interface FeatureCardProps {
-  icon: string;
-  title: string;
-  description: string;
-  href: string;
-  badge?: string;
-  badgeColor?: string;
-  isNew?: boolean;
-}
-
-const FeatureCard: React.FC<FeatureCardProps> = ({
-  icon,
-  title,
-  description,
-  href,
-  badge,
-  badgeColor = 'bg-pink-500',
-  isNew,
-}) => (
-  <Link
-    to={href}
-    className="bg-white rounded-2xl p-4 block hover:shadow-md transition-all relative border border-pink-100"
-  >
-    {isNew && (
-      <span className="absolute top-2 right-2 bg-gradient-to-r from-pink-500 to-rose-400 text-white text-xs px-2 py-0.5 rounded-full">
-        NEW
-      </span>
-    )}
-    {badge && !isNew && (
-      <span className={`absolute top-2 right-2 ${badgeColor} text-white text-xs px-2 py-0.5 rounded-full`}>
-        {badge}
-      </span>
-    )}
-    <div className="w-12 h-12 bg-pink-100 rounded-xl flex items-center justify-center mb-3">
-      <span className="text-2xl">{icon}</span>
-    </div>
-    <h3 className="font-semibold text-slate-700">{title}</h3>
-    <p className="text-sm text-slate-400">{description}</p>
-  </Link>
-);
-
-interface QuickActionButtonProps {
-  icon: string;
-  label: string;
-}
-
-const QuickActionButton: React.FC<QuickActionButtonProps> = ({ icon, label }) => (
-  <button className="flex flex-col items-center gap-1 bg-white rounded-xl px-4 py-3 min-w-[70px] hover:shadow-md transition-all border border-pink-100">
-    <span className="text-xl">{icon}</span>
-    <span className="text-xs text-slate-500">{label}</span>
-  </button>
-);
-
-interface TreatmentOptionProps {
-  name: string;
-  duration: string;
-  price: string;
-}
-
-const TreatmentOption: React.FC<TreatmentOptionProps> = ({ name, duration, price }) => (
-  <button className="w-full flex items-center justify-between p-3 rounded-xl bg-pink-50 hover:bg-pink-100 transition-colors">
-    <div className="text-left">
-      <p className="font-medium text-slate-700">{name}</p>
-      <p className="text-sm text-slate-400">{duration}</p>
-    </div>
-    <p className="text-pink-500 font-semibold">{price}</p>
-  </button>
-);
 
 // ============================================================================
 // App Root
@@ -326,9 +344,30 @@ const App: React.FC = () => {
               onRegistrationComplete={handleRegistrationComplete}
             >
               <Routes>
-                <Route path="/" element={<HomePage />} />
+                {/* 六宮格首頁 */}
+                <Route path="/" element={<LiffHome />} />
+                
+                {/* 預約系統 */}
                 <Route path="/booking" element={<BookingPage />} />
-                <Route path="/records" element={<RecordsPage />} />
+                
+                {/* 醫美商城 */}
+                <Route path="/mall" element={<LiffMall />} />
+                
+                {/* 體重追蹤 */}
+                <Route path="/weight" element={<LiffWeight />} />
+                
+                {/* 會員中心 */}
+                <Route path="/profile" element={<LiffProfile />} />
+                
+                {/* 意見回饋 */}
+                <Route path="/feedback" element={<LiffFeedback />} />
+                
+                {/* 舊路由相容 */}
+                <Route path="/records" element={<Navigate to="/profile" replace />} />
+                <Route path="/offers" element={<Navigate to="/mall" replace />} />
+                <Route path="/contact" element={<Navigate to="/feedback" replace />} />
+                
+                {/* 404 */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </OnboardingProvider>
