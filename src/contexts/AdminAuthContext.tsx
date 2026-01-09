@@ -126,9 +126,23 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   // 初始化：檢查現有 session
   useEffect(() => {
+    let isMounted = true;
+    
     const initAuth = async () => {
       try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        // 設定 timeout 避免無限等待
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Auth timeout')), 5000)
+        );
+        
+        const sessionPromise = supabase.auth.getSession();
+        
+        const { data: { session: currentSession } } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as Awaited<ReturnType<typeof supabase.auth.getSession>>;
+        
+        if (!isMounted) return;
         
         if (currentSession?.user) {
           setSession(currentSession);
@@ -137,8 +151,11 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error('Auth init error:', err);
+        // Timeout 或其他錯誤時，仍然讓頁面顯示登入表單
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -159,6 +176,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     );
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);
