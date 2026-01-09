@@ -4,7 +4,7 @@
  * Theme: Flower Pink (粉色系 - 花花醫美品牌)
  * 
  * 整合六宮格首頁與所有 LIFF 功能頁面
- * 確保所有使用者在存取任何功能前都已完成身份綁定
+ * 支援角色權限分流：客戶版 / 員工版
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
@@ -12,12 +12,20 @@ import { OnboardingProvider } from './components/OnboardingGate';
 import { AdminPage } from './pages/admin';
 import type { GatewayResult } from './lib/liff-auth';
 
-// LIFF Pages
+// LIFF Pages - 客戶版
 import LiffHome from './pages/liff/LiffHome';
 import LiffWeight from './pages/liff/LiffWeight';
 import LiffFeedback from './pages/liff/LiffFeedback';
 import LiffProfile from './pages/liff/LiffProfile';
 import LiffMall from './pages/liff/LiffMall';
+
+// LIFF Pages - 員工版
+import StaffDashboard from './pages/staff/StaffDashboard';
+import StaffSchedule from './pages/staff/StaffSchedule';
+import StaffScanner from './pages/staff/StaffScanner';
+import StaffHR from './pages/staff/StaffHR';
+import StaffFinance from './pages/staff/StaffFinance';
+
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabase';
 import { ArrowLeft, Calendar, Loader2 } from 'lucide-react';
@@ -332,8 +340,15 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Admin Route - 獨立於 LIFF 認證流程 */}
+        {/* Admin Route - 獨立於 LIFF 認證流程 (電腦版後台) */}
         <Route path="/admin/*" element={<AdminPage />} />
+        
+        {/* Staff LIFF Routes - 員工版 Mobile 後台 */}
+        <Route path="/staff/dashboard" element={<StaffDashboard />} />
+        <Route path="/staff/schedule" element={<StaffSchedule />} />
+        <Route path="/staff/scanner" element={<StaffScanner />} />
+        <Route path="/staff/hr" element={<StaffHR />} />
+        <Route path="/staff/finance" element={<StaffFinance />} />
         
         {/* LIFF Client Routes - 需要 OnboardingGate */}
         <Route
@@ -344,7 +359,7 @@ const App: React.FC = () => {
               onRegistrationComplete={handleRegistrationComplete}
             >
               <Routes>
-                {/* 六宮格首頁 */}
+                {/* 六宮格首頁 (支援角色分流) */}
                 <Route path="/" element={<LiffHome />} />
                 
                 {/* 預約系統 */}
